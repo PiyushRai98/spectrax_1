@@ -3,9 +3,10 @@ import { cameraService } from '../services/cameraService';
 import { poseService } from '../services/poseService';
 import { overlayRenderer } from '../services/overlayRenderer';
 import { calibrationLogic, CalibrationResult } from '../services/calibrationLogic';
-import { Camera, ArrowRight, AlertCircle, Dumbbell } from 'lucide-react';
+import { Camera, AlertCircle, Dumbbell, Hand } from 'lucide-react';
 import { ExerciseConfig, exercises } from '../config/exercises';
 import { bodyTypeEngine, BodyType, BodyTypeResult } from '../services/bodyTypeEngine';
+import { gestureService, GestureResult } from '../services/gestureService';
 
 interface CalibrationScreenProps {
   selectedExercise: ExerciseConfig;
@@ -27,10 +28,20 @@ export const CalibrationScreen: React.FC<CalibrationScreenProps> = ({
   });
   const [error, setError] = useState<string | null>(null);
   const [bodyTypeRes, setBodyTypeRes] = useState<BodyTypeResult | null>(null);
+  const [gestureResult, setGestureResult] = useState<GestureResult>({
+    isHandRaised: false,
+    confidence: 0,
+    leftWristAboveShoulder: false,
+    rightWristAboveShoulder: false,
+    isPoseLost: false,
+  });
+  const [countdownActive, setCountdownActive] = useState(false);
+  const [countdownSeconds, setCountdownSeconds] = useState(3);
   
   const frameId = useRef<number>(0);
   const lastProcessTime = useRef<number>(0);
   const FPS_LIMIT = 15;
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -57,9 +68,11 @@ export const CalibrationScreen: React.FC<CalibrationScreenProps> = ({
             if (bt.bodyType !== 'scanning' && bt.confidence > 0.8) {
                onBodyTypeDetected(bt.bodyType);
             }
+
+            const gesture = gestureService.analyze(results.poseLandmarks);
+            setGestureResult(gesture);
           }
 
-          // Use primary joints from selected exercise for highlighting
           const primaryJoints = selectedExercise.joints?.flat() || [];
           overlayRenderer.draw(results, evaluation.status, primaryJoints);
         });
@@ -91,8 +104,48 @@ export const CalibrationScreen: React.FC<CalibrationScreenProps> = ({
       cancelAnimationFrame(frameId.current);
       cameraService.stopCamera();
       bodyTypeEngine.reset();
+      gestureService.reset();
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+      }
     };
   }, [selectedExercise, onBodyTypeDetected]);
+
+  useEffect(() => {
+    if (gestureResult.isHandRaised && result.isReady && !gestureResult.isPoseLost && !countdownActive) {
+      setCountdownActive(true);
+      setCountdownSeconds(3);
+    } else if (!gestureResult.isHandRaised || gestureResult.isPoseLost) {
+      if (countdownActive) {
+        setCountdownActive(false);
+        if (countdownIntervalRef.current) {
+          clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
+        }
+      }
+    }
+  }, [gestureResult.isHandRaised, result.isReady, gestureResult.isPoseLost, countdownActive]);
+
+  useEffect(() => {
+    if (countdownActive && countdownSeconds > 0) {
+      countdownIntervalRef.current = setInterval(() => {
+        setCountdownSeconds(prev => prev - 1);
+      }, 1000);
+      return () => {
+        if (countdownIntervalRef.current) {
+          clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
+        }
+      };
+    } else if (countdownActive && countdownSeconds === 0) {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+      setCountdownActive(false);
+      onNext();
+    }
+  }, [countdownActive, countdownSeconds, onNext]);
 
   const statusColor = result.status === 'green' ? 'var(--neon-green)' : (result.status === 'yellow' ? 'var(--neon-yellow)' : 'var(--neon-red)');
 
@@ -239,18 +292,45 @@ export const CalibrationScreen: React.FC<CalibrationScreenProps> = ({
         {/* Bottom Controls */}
         <div className="animate-in" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', pointerEvents: 'all' }}>
           <button onClick={onBack} className="btn-outline">CANCEL</button>
-          <div className="glass" style={{ padding: '20px', minWidth: '300px', display: 'flex', alignItems: 'center', gap: '20px' }}>
-            <div style={{ position: 'relative', width: '12px', height: '12px' }}>
-                <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: statusColor, boxShadow: `0 0 10px ${statusColor}` }} />
+          {countdownActive && countdownSeconds > 0 ? (
+            <div className="glass" style={{ padding: '20px 40px', minWidth: '350px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', border: '2px solid var(--neon-cyan)', background: 'rgba(0, 240, 255, 0.05)', boxShadow: '0 0 20px rgba(0, 240, 255, 0.3)' }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--neon-cyan)', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 700 }}>STARTING IN</div>
+              <div style={{ fontFamily: 'var(--font-heading)', fontSize: '4rem', color: 'var(--neon-cyan)', letterSpacing: '4px', textShadow: '0 0 20px rgba(0, 240, 255, 0.8)', animation: 'pulse 0.5s ease-in-out' }}>{countdownSeconds}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>KEEP YOUR HANDS UP</div>
             </div>
-            <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '1.5px' }}>{selectedExercise.name} mode</div>
-                <div style={{ color: statusColor, fontWeight: 700, fontSize: '0.85rem' }}>{result.isReady ? 'READY TO START' : 'SCANNING BODY...'}</div>
+          ) : gestureResult.isPoseLost ? (
+            <div className="glass" style={{ padding: '20px 40px', minWidth: '350px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', border: '2px solid var(--neon-red)', background: 'rgba(255, 59, 92, 0.05)', boxShadow: '0 0 20px rgba(255, 59, 92, 0.3)' }}>
+              <AlertCircle color="var(--neon-red)" size={32} />
+              <div style={{ fontSize: '0.75rem', color: 'var(--neon-red)', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 700 }}>POSE LOST</div>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textAlign: 'center' }}>Get back in frame and try again</div>
             </div>
-            <button onClick={onNext} disabled={!result.isReady} className="btn-neon" style={{ padding: '12px 24px', fontSize: '0.75rem' }}>
-              START ANALYSIS <ArrowRight size={16} />
-            </button>
-          </div>
+          ) : result.isReady ? (
+            <div className="glass" style={{ padding: '20px 40px', minWidth: '350px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Hand color="var(--neon-purple)" size={28} style={{ animation: 'pulse 1.5s ease-in-out infinite' }} />
+                <div>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '1.5px' }}>READY TO START</div>
+                  <div style={{ color: 'var(--neon-cyan)', fontWeight: 700, fontSize: '0.85rem' }}>RAISE BOTH HANDS</div>
+                </div>
+              </div>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.6 }}>Lift both hands above your shoulders to begin analysis</div>
+              {gestureResult.confidence > 0 && gestureResult.confidence < 1 && (
+                <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                  <div style={{ width: `${gestureResult.confidence * 100}%`, height: '100%', background: 'var(--neon-purple)', transition: 'width 0.3s ease', boxShadow: '0 0 10px var(--neon-purple)' }} />
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="glass" style={{ padding: '20px 40px', minWidth: '350px', display: 'flex', alignItems: 'center', gap: '20px' }}>
+              <div style={{ position: 'relative', width: '12px', height: '12px' }}>
+                  <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'var(--neon-yellow)', boxShadow: `0 0 10px var(--neon-yellow)` }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '1.5px' }}>{selectedExercise.name} mode</div>
+                  <div style={{ color: 'var(--neon-yellow)', fontWeight: 700, fontSize: '0.85rem' }}>{result.message}</div>
+              </div>
+            </div>
+          )}
         </div>
 
       </div>
