@@ -1,6 +1,7 @@
-import { Results, POSE_CONNECTIONS } from '@mediapipe/pose';
-import { drawConnectors, drawLandmarks } from '@mediapipe/drawing_utils';
-
+declare const POSE_CONNECTIONS: any;
+declare const drawConnectors: any;
+declare const drawLandmarks: any;
+type Results = any;
 /**
  * overlayRenderer.ts (Updated for Multi-Exercise)
  * High-performance canvas drawing with dynamic joint color-coding.
