@@ -8,6 +8,7 @@ import { exerciseEngine, EngineState } from '../services/exerciseEngine';
 import { ExerciseConfig } from '../config/exercises';
 import { sessionRecorder } from '../services/sessionRecorder';
 import { skeletalSense } from '../services/skeletalSense'; // Kept on main thread for reliable auto-detect
+import { poseLockService } from '../services/poseLockService';
 import { clipEngine } from '../services/clipEngine';
 import { BodyType } from '../services/bodyTypeEngine';
 
@@ -134,7 +135,11 @@ export const WorkoutScreen: React.FC<WorkoutScreenProps> = ({ exercise, onEnd, o
         await cameraService.startCamera(videoRef.current);
 
         poseService.onResults(async (results) => {
-          if (!isMounted || !results.poseLandmarks) return;
+          if (!isMounted) return;
+
+          // ── SINGLE USER LOCK: Filter out erratic detections or second people ──
+          const filteredResults = poseLockService.filter(results);
+          if (!filteredResults || !filteredResults.poseLandmarks) return;
 
           // ── Frame skipping: process every other frame ─────────────────────
           frameSkipRef.current++;
