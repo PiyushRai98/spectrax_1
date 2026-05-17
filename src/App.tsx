@@ -154,6 +154,7 @@ function App() {
     >
       <button
         onClick={toggleTheme}
+
         className="theme-toggle"
         aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
       >
@@ -166,6 +167,8 @@ function App() {
         className="profile-button"
         aria-label="View profile"
         title="View profile"
+        className={`theme-toggle ${currentScreen === 'workout' ? 'workout-active' : ''}`}
+        aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
       >
         👤
       </button>
