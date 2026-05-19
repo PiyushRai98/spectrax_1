@@ -62,6 +62,12 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ onBack }) => {
     return ["All", ...Array.from(types)];
   }, [sessions]);
 
+  useEffect(() => {
+    if (!availableTypes.includes(filterType)) {
+      setFilterType("All");
+    }
+  }, [availableTypes, filterType]);
+
   const filteredSessions = useMemo(() => {
     const calGoal = parseInt(debouncedCalories || "0", 10);
     return sessions.filter((s) => {
